@@ -1,13 +1,17 @@
 FROM php:8.2-cli
 
-# Poppler install
-RUN apt-get update && apt-get install -y poppler-utils
+# Install poppler + GD dependencies
+RUN apt-get update && apt-get install -y \
+    poppler-utils \
+    libpng-dev \
+    libjpeg-dev \
+    libfreetype6-dev
 
-# Working directory
+# Install GD extension
+RUN docker-php-ext-configure gd --with-freetype --with-jpeg \
+    && docker-php-ext-install gd
+
 WORKDIR /app
-
-# Copy project files
 COPY . /app
 
-# Run PHP server
-CMD ["php", "-S", "0.0.0.0:10000"] 
+CMD ["php", "-S", "0.0.0.0:10000"]
