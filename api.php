@@ -37,7 +37,7 @@ preg_match('/Name\(English\) (.+)/', $text, $nameMatch);
 $images = glob("img-*.png");
 
 // base URL (⚠️ deploy হওয়ার পর এটা change করবে)
-$base = "https://your-app.onrender.com/";
+$base = "https://pdf-api-1ha5.onrender.com/";
 
 // full image URL
 foreach ($images as &$img) {
