@@ -1,5 +1,7 @@
 <?php
 
+// ================= IMPORTANT =================
+ini_set('memory_limit', '512M');
 header("Content-Type: application/json");
 
 // ================= FILE CHECK =================
@@ -22,7 +24,8 @@ move_uploaded_file($file, $filename);
 exec("pdftotext $filename output.txt");
 
 // ================= IMAGE EXTRACT =================
-exec("pdftoppm -png -r 300 $filename img");
+// low resolution (RAM safe)
+exec("pdftoppm -png -r 100 $filename img");
 
 // ================= READ TEXT =================
 $text = file_get_contents("output.txt");
@@ -40,7 +43,6 @@ function getValue($text, $start, $endKeys = []) {
     if (preg_match($pattern, $text, $match)) {
         return trim($match[1]);
     }
-
     return null;
 }
 
@@ -48,7 +50,7 @@ function clean($v) {
     return $v ? trim(preg_replace('/\s+/', ' ', $v)) : null;
 }
 
-// ================= BASIC DATA =================
+// ================= DATA PARSE =================
 $data = [
     "nid" => getValue($text, "National ID", ["Pin"]),
     "pin" => getValue($text, "Pin", ["Status"]),
@@ -81,9 +83,7 @@ $data = [
 
 $data = array_map('clean', $data);
 
-// ================= ADDRESS PARSE =================
-
-// Present Address
+// ================= ADDRESS =================
 $present = [
     "division" => getValue($text, "Present Address Division", ["District"]),
     "district" => getValue($text, "District", ["RMO"]),
@@ -95,10 +95,9 @@ $present = [
     "region" => getValue($text, "Region", ["Permanent Address"]),
 ];
 
-// Permanent Address
 $permanent = [
     "division" => getValue($text, "Permanent Address Division", ["District"]),
-    "district" => getValue($text, "Permanent Address Division .*? District", ["RMO"]),
+    "district" => getValue($text, "District", ["RMO"]),
     "upazila" => getValue($text, "Upozila", ["Union/Ward"]),
     "union" => getValue($text, "Union/Ward", ["Mouza/Moholla"]),
     "village" => getValue($text, "Village/Road", ["Home/Holding"]),
@@ -107,70 +106,32 @@ $permanent = [
     "region" => getValue($text, "Region", ["Education"]),
 ];
 
-// ================= IMAGE PROCESS =================
+// ================= IMAGE (NO CROP) =================
 $images = glob("img-*.png");
 
-$userIMG = null;
-$signIMG = null;
+$imageList = [];
 
-if (!empty($images)) {
-    sort($images);
-    $img = $images[0];
-
-    list($width, $height) = getimagesize($img);
-    $src = imagecreatefrompng($img);
-
-    // PHOTO (adjust if needed)
-    $photo = imagecrop($src, [
-        'x' => 50,
-        'y' => 150,
-        'width' => 300,
-        'height' => 350
-    ]);
-
-    // SIGN
-    $sign = imagecrop($src, [
-        'x' => 50,
-        'y' => $height - 200,
-        'width' => 300,
-        'height' => 150
-    ]);
-
-    if ($photo) {
-        ob_start();
-        imagepng($photo);
-        $userIMG = base64_encode(ob_get_clean());
-    }
-
-    if ($sign) {
-        ob_start();
-        imagepng($sign);
-        $signIMG = base64_encode(ob_get_clean());
-    }
-
-    imagedestroy($src);
+foreach ($images as $img) {
+    $imageList[] = base64_encode(file_get_contents($img));
 }
 
-// ================= FINAL RESPONSE =================
-$response = [
+// ================= RESPONSE =================
+echo json_encode([
     "success" => true,
     "data" => [
         ...$data,
-        "userIMG" => $userIMG,
-        "signIMG" => $signIMG,
+        "images" => $imageList, // সব image এখানে
         "address" => "Auto generated",
         "present_address" => $present,
         "permanent_address" => $permanent,
         "additional_info" => []
     ]
-];
-
-echo json_encode($response);
+]);
 
 // ================= CLEANUP =================
 @unlink($filename);
 @unlink("output.txt");
 
-foreach (glob("img-*.png") as $img) {
+foreach ($images as $img) {
     @unlink($img);
 }
