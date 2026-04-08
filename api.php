@@ -2,126 +2,172 @@
 
 header("Content-Type: application/json");
 
-// check file
+// ================= FILE CHECK =================
 if (!isset($_FILES['pdf'])) {
     echo json_encode(["success" => false, "msg" => "No file uploaded"]);
     exit;
 }
 
-// validate PDF
 if ($_FILES['pdf']['type'] !== 'application/pdf') {
     echo json_encode(["success" => false, "msg" => "Only PDF allowed"]);
     exit;
 }
 
-// upload file
+// ================= UPLOAD =================
 $file = $_FILES['pdf']['tmp_name'];
 $filename = uniqid() . ".pdf";
-
 move_uploaded_file($file, $filename);
 
-// extract text
+// ================= TEXT EXTRACT =================
 exec("pdftotext $filename output.txt");
 
-// extract images
-exec("pdftoppm $filename img -png");
+// ================= IMAGE EXTRACT =================
+exec("pdftoppm -png -r 300 $filename img");
 
-// read text
+// ================= READ TEXT =================
 $text = file_get_contents("output.txt");
 
-// clean text (VERY IMPORTANT)
+// clean text
 $text = preg_replace('/\s+/', ' ', $text);
 $text = trim($text);
 
-// function to extract value
-function getValue($text, $key) {
-    preg_match('/' . preg_quote($key, '/') . '\s+(.+?)(?=\s+[A-Z][a-z]|\s+[A-Z]\(|$)/', $text, $match);
-    return isset($match[1]) ? trim($match[1]) : null;
+// ================= FUNCTION =================
+function getValue($text, $start, $endKeys = []) {
+    $pattern = '/' . preg_quote($start, '/') . '\s+(.*?)\s+(' . implode('|', array_map(function($k){
+        return preg_quote($k, '/');
+    }, $endKeys)) . ')/i';
+
+    if (preg_match($pattern, $text, $match)) {
+        return trim($match[1]);
+    }
+
+    return null;
 }
 
-// extract data
+function clean($v) {
+    return $v ? trim(preg_replace('/\s+/', ' ', $v)) : null;
+}
+
+// ================= BASIC DATA =================
 $data = [
-    "nid" => getValue($text, "National ID"),
-    "pin" => getValue($text, "Pin"),
-    "status" => getValue($text, "Status"),
-    "afis_status" => getValue($text, "Afis Status"),
-    "lock_flag" => getValue($text, "Lock Flag"),
-    "voter_no" => getValue($text, "Voter No"),
-    "form_no" => getValue($text, "Form No"),
-    "sl_no" => getValue($text, "Sl No"),
-    "tag" => getValue($text, "Tag"),
-    "nameBangla" => getValue($text, "Name(Bangla)"),
-    "nameEnglish" => getValue($text, "Name(English)"),
-    "dateOfBirth" => getValue($text, "Date of Birth"),
-    "birthPlace" => getValue($text, "Birth Place"),
-    "birth_registration_no" => getValue($text, "Birth Registration"),
-    "fatherName" => getValue($text, "Father Name"),
-    "motherName" => getValue($text, "Mother Name"),
-    "spouseName" => getValue($text, "Spouse Name"),
-    "gender" => getValue($text, "Gender"),
-    "marital_status" => getValue($text, "Marital"),
-    "occupation" => getValue($text, "Occupation"),
-    "religion" => getValue($text, "Religion"),
-    "education" => getValue($text, "Education"),
-    "mobile" => getValue($text, "Mobile"),
+    "nid" => getValue($text, "National ID", ["Pin"]),
+    "pin" => getValue($text, "Pin", ["Status"]),
+    "status" => getValue($text, "Status", ["Afis Status"]),
+    "afis_status" => getValue($text, "Afis Status", ["Lock Flag"]),
+    "lock_flag" => getValue($text, "Lock Flag", ["Voter No"]),
+    "voter_no" => getValue($text, "Voter No", ["Form No"]),
+    "form_no" => getValue($text, "Form No", ["Sl No"]),
+    "sl_no" => getValue($text, "Sl No", ["Tag"]),
+    "tag" => getValue($text, "Tag", ["Name(Bangla)"]),
+
+    "nameBangla" => getValue($text, "Name(Bangla)", ["Name(English)"]),
+    "nameEnglish" => getValue($text, "Name(English)", ["Date of Birth"]),
+    "dateOfBirth" => getValue($text, "Date of Birth", ["Birth Place"]),
+    "birthPlace" => getValue($text, "Birth Place", ["Birth Registration"]),
+
+    "birth_registration_no" => getValue($text, "Birth Registration", ["Father Name"]),
+    "fatherName" => getValue($text, "Father Name", ["Mother Name"]),
+    "motherName" => getValue($text, "Mother Name", ["Spouse Name"]),
+    "spouseName" => getValue($text, "Spouse Name", ["Gender"]),
+
+    "gender" => getValue($text, "Gender", ["Marital"]),
+    "marital_status" => getValue($text, "Marital", ["Occupation"]),
+    "occupation" => getValue($text, "Occupation", ["Disability"]),
+
+    "religion" => getValue($text, "Religion", ["Religion Other"]),
+    "education" => getValue($text, "Education", ["Education Other"]),
+    "mobile" => getValue($text, "Mobile", ["Email"]),
 ];
 
-// image extract → base64
+$data = array_map('clean', $data);
+
+// ================= ADDRESS PARSE =================
+
+// Present Address
+$present = [
+    "division" => getValue($text, "Present Address Division", ["District"]),
+    "district" => getValue($text, "District", ["RMO"]),
+    "upazila" => getValue($text, "Upozila", ["Union/Ward"]),
+    "union" => getValue($text, "Union/Ward", ["Mouza/Moholla"]),
+    "village" => getValue($text, "Village/Road", ["Home/Holding"]),
+    "post_office" => getValue($text, "Post Office", ["Postal Code"]),
+    "postal_code" => getValue($text, "Postal Code", ["Region"]),
+    "region" => getValue($text, "Region", ["Permanent Address"]),
+];
+
+// Permanent Address
+$permanent = [
+    "division" => getValue($text, "Permanent Address Division", ["District"]),
+    "district" => getValue($text, "Permanent Address Division .*? District", ["RMO"]),
+    "upazila" => getValue($text, "Upozila", ["Union/Ward"]),
+    "union" => getValue($text, "Union/Ward", ["Mouza/Moholla"]),
+    "village" => getValue($text, "Village/Road", ["Home/Holding"]),
+    "post_office" => getValue($text, "Post Office", ["Postal Code"]),
+    "postal_code" => getValue($text, "Postal Code", ["Region"]),
+    "region" => getValue($text, "Region", ["Education"]),
+];
+
+// ================= IMAGE PROCESS =================
 $images = glob("img-*.png");
 
 $userIMG = null;
 $signIMG = null;
 
-if (isset($images[0])) {
-    $userIMG = base64_encode(file_get_contents($images[0]));
+if (!empty($images)) {
+    sort($images);
+    $img = $images[0];
+
+    list($width, $height) = getimagesize($img);
+    $src = imagecreatefrompng($img);
+
+    // PHOTO (adjust if needed)
+    $photo = imagecrop($src, [
+        'x' => 50,
+        'y' => 150,
+        'width' => 300,
+        'height' => 350
+    ]);
+
+    // SIGN
+    $sign = imagecrop($src, [
+        'x' => 50,
+        'y' => $height - 200,
+        'width' => 300,
+        'height' => 150
+    ]);
+
+    if ($photo) {
+        ob_start();
+        imagepng($photo);
+        $userIMG = base64_encode(ob_get_clean());
+    }
+
+    if ($sign) {
+        ob_start();
+        imagepng($sign);
+        $signIMG = base64_encode(ob_get_clean());
+    }
+
+    imagedestroy($src);
 }
 
-if (isset($images[1])) {
-    $signIMG = base64_encode(file_get_contents($images[1]));
-}
-
-// final response
+// ================= FINAL RESPONSE =================
 $response = [
     "success" => true,
     "data" => [
-        "nid" => $data["nid"],
-        "pin" => $data["pin"],
-        "status" => $data["status"],
-        "afis_status" => $data["afis_status"],
-        "lock_flag" => $data["lock_flag"],
-        "voter_no" => $data["voter_no"],
-        "form_no" => $data["form_no"],
-        "sl_no" => $data["sl_no"],
-        "tag" => $data["tag"],
-        "nameBangla" => $data["nameBangla"],
-        "nameEnglish" => $data["nameEnglish"],
-        "dateOfBirth" => $data["dateOfBirth"],
-        "birthPlace" => $data["birthPlace"],
-        "birth_registration_no" => $data["birth_registration_no"],
-        "fatherName" => $data["fatherName"],
-        "motherName" => $data["motherName"],
-        "spouseName" => $data["spouseName"],
-        "gender" => $data["gender"],
-        "marital_status" => $data["marital_status"],
-        "occupation" => $data["occupation"],
-        "religion" => $data["religion"],
-        "education" => $data["education"],
-        "mobile" => $data["mobile"],
+        ...$data,
         "userIMG" => $userIMG,
         "signIMG" => $signIMG,
-
-        // simple address (optional)
-        "address" => "Auto extract coming soon",
-
-        "present_address" => [],
-        "permanent_address" => [],
+        "address" => "Auto generated",
+        "present_address" => $present,
+        "permanent_address" => $permanent,
         "additional_info" => []
     ]
 ];
 
 echo json_encode($response);
 
-// cleanup
+// ================= CLEANUP =================
 @unlink($filename);
 @unlink("output.txt");
 
