@@ -10,4 +10,4 @@ WORKDIR /app
 COPY . /app
 
 # Run PHP server
-CMD ["php", "-S", "0.0.0.0:10000"]
+CMD ["php", "-S", "0.0.0.0:10000"] 
